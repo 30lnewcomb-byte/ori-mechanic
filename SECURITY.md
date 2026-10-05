@@ -10,7 +10,7 @@ Ori Mechanic follows a **passenger, not driver** model: it can perform approved 
 
 ## Anti-jailbreak architecture
 
-Mechanic does not receive a shell or direct process-execution primitive. Execution goes through the authenticated sandbox API.
+Mechanic does not receive a shell or direct process-execution primitive. Execution goes through controlled adapters and the authenticated sandbox API.
 
 The sandbox independently enforces:
 
@@ -23,6 +23,21 @@ The sandbox independently enforces:
 - A minimal environment with no provider credentials.
 
 These controls are intentionally redundant. A model instruction, prompt, tool argument, or compromised decision layer must not be sufficient to grant itself new privileges.
+
+## Browser and application access
+
+Browser and application access is treated as a **capability**, not a general-purpose computer-control privilege.
+
+- Browser navigation is HTTPS-only and can be restricted to an explicit domain allowlist.
+- Localhost, loopback, and cloud metadata destinations are blocked.
+- Form submission is separately gated from read/navigation access.
+- Email reading, drafting, and sending are separate capabilities.
+- Email sending requires explicit approval; having browser access does not imply email access.
+- Application adapters must go through the capability broker and may not bypass it.
+- Authentication secrets must remain in the application's credential store; Mechanic should receive scoped operations, not raw passwords or API keys.
+- Browser output is treated as untrusted input and must not be allowed to rewrite Mechanic's security policy.
+
+This means Mechanic can eventually use a browser and applications without giving the reasoning layer an unrestricted desktop.
 
 ## API credential rules
 
