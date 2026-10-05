@@ -19,3 +19,5 @@ services:
       - ./workspace:/workspace:rw
     ports:
       - "127.0.0.1:8080:8080"
+    environment:
+      SANDBOX_API_TOKEN: ${SANDBOX_API_TOKEN:?SANDBOX_API_TOKEN must be set}
