@@ -1,0 +1,21 @@
+services:
+  sandbox:
+    build:
+      context: .
+      dockerfile: sandbox/Dockerfile
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    network_mode: "none"
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+      - /run:rw,noexec,nosuid,size=16m
+    volumes:
+      - ./workspace:/workspace:rw
+    ports:
+      - "127.0.0.1:8080:8080"
