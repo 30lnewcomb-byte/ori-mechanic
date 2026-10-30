@@ -30,12 +30,12 @@ async def lifespan(_: FastAPI):
     yield
     for browser_session in list(ENGINE_SESSIONS.values()):
         try:
-            engine.close(browser_session)
+            await engine.close(browser_session)
         except Exception:
             pass
     ENGINE_SESSIONS.clear()
     SESSIONS.clear()
-    engine.stop()
+    await engine.stop()
 
 
 app = FastAPI(title="Ori Mechanic Monitored Browser", version="0.3.0", lifespan=lifespan)
@@ -69,7 +69,7 @@ def health():
 
 
 @app.post("/v1/sessions", response_model=Session)
-def create_session(request: SessionRequest, _: None = Depends(require_internal_token)):
+async def create_session(request: SessionRequest, _: None = Depends(require_internal_token)):
     if request.persistent:
         raise HTTPException(status_code=400, detail="persistent browser profiles are not supported")
     if not request.allowed_domains:
@@ -88,7 +88,7 @@ def create_session(request: SessionRequest, _: None = Depends(require_internal_t
             raise HTTPException(status_code=400, detail=f"invalid allowed URL: {reason}")
 
     try:
-        live_session = engine.new_context(domains)
+        live_session = await engine.new_context(domains)
     except Exception as exc:
         monitor.record("engine_start_failed", type(exc).__name__)
         raise HTTPException(status_code=503, detail="isolated Chromium engine could not start") from exc
@@ -108,7 +108,7 @@ def create_session(request: SessionRequest, _: None = Depends(require_internal_t
 
 
 @app.post("/v1/navigate", response_model=BrowserResult)
-def navigate(request: NavigateRequest, _: None = Depends(require_internal_token)):
+async def navigate(request: NavigateRequest, _: None = Depends(require_internal_token)):
     record, live = get_session(request.session_id)
     if "browser.navigate" not in record.capabilities:
         raise HTTPException(status_code=403, detail="browser navigation capability was not granted")
@@ -120,7 +120,7 @@ def navigate(request: NavigateRequest, _: None = Depends(require_internal_token)
         monitor.record("navigation_rejected", "exact URL allowlist")
         return BrowserResult(status="rejected", reason="URL is outside this session's exact URL allowlist")
     try:
-        result = engine.navigate(live, request.url)
+        result = await engine.navigate(live, request.url)
     except Exception as exc:
         monitor.record("navigation_failed", type(exc).__name__)
         return BrowserResult(status="failed", reason="navigation failed; see browser service logs")
@@ -129,12 +129,12 @@ def navigate(request: NavigateRequest, _: None = Depends(require_internal_token)
 
 
 @app.post("/v1/read", response_model=BrowserResult)
-def read_page(request: ReadRequest, _: None = Depends(require_internal_token)):
+async def read_page(request: ReadRequest, _: None = Depends(require_internal_token)):
     record, live = get_session(request.session_id)
     if "browser.read" not in record.capabilities:
         raise HTTPException(status_code=403, detail="browser read capability was not granted")
     try:
-        content = engine.read(live, request.selector)
+        content = await engine.read(live, request.selector)
     except Exception as exc:
         monitor.record("read_failed", type(exc).__name__)
         return BrowserResult(status="failed", reason="page content could not be read")
@@ -143,7 +143,7 @@ def read_page(request: ReadRequest, _: None = Depends(require_internal_token)):
 
 
 @app.post("/v1/actions", response_model=BrowserResult)
-def action(request: ActionRequest, _: None = Depends(require_internal_token)):
+async def action(request: ActionRequest, _: None = Depends(require_internal_token)):
     record, live = get_session(request.session_id)
     form_approved = "browser.form" in record.capabilities
     allowed, reason = validate_action(request.action, form_approved=form_approved)
@@ -153,7 +153,7 @@ def action(request: ActionRequest, _: None = Depends(require_internal_token)):
     if request.action == "find" and "browser.read" not in record.capabilities:
         raise HTTPException(status_code=403, detail="browser read capability was not granted")
     try:
-        result = engine.action(live, request.action, request.selector, request.value)
+        result = await engine.action(live, request.action, request.selector, request.value)
     except Exception as exc:
         monitor.record("action_failed", f"{request.action}:{type(exc).__name__}")
         return BrowserResult(status="failed", reason="browser action failed; see browser service logs")
@@ -162,10 +162,10 @@ def action(request: ActionRequest, _: None = Depends(require_internal_token)):
 
 
 @app.post("/v1/close", response_model=BrowserResult)
-def close(request: NavigateRequest, _: None = Depends(require_internal_token)):
+async def close(request: NavigateRequest, _: None = Depends(require_internal_token)):
     _, live = get_session(request.session_id)
     try:
-        engine.close(live)
+        await engine.close(live)
     finally:
         ENGINE_SESSIONS.pop(request.session_id, None)
         SESSIONS.pop(request.session_id, None)
