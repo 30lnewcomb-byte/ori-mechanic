@@ -6,7 +6,13 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY browser/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt \
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+# Keep the browser cache outside root's home so the unprivileged runtime user
+# can launch the Chromium binary installed during the image build.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN mkdir -p /ms-playwright \
+    && chmod 755 /ms-playwright \
     && playwright install --with-deps chromium
 
 RUN useradd --create-home --uid 10002 mechanic-browser

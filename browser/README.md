@@ -1,30 +1,26 @@
-# Mechanic Monitored Browser
+# Ori Mechanic Monitored Browser
 
-A lightweight browser runtime designed specifically for Ori Mechanic.
+A separately hosted, headless Chromium service for approved browser tasks. Mechanic communicates through a narrow authenticated HTTP API; the browser service does not expose shell execution, host paths, or credentials.
 
-The browser is an instrument, not an unrestricted desktop. Mechanic communicates with it through a narrow API and every navigation/action is observable and policy-checked.
+## Run locally
 
-## Design goals
+Set a strong, private `BROWSER_API_TOKEN`, then run the browser service with the dependencies in `requirements.txt`. The Docker Compose service publishes it only on host loopback at port 8090.
 
-- Lightweight headless Chromium-based runtime.
-- No direct host filesystem access.
-- No access to Mechanic credentials.
-- HTTPS-only navigation.
-- Explicit domain allowlists.
-- Separate read, navigation, form, and download capabilities.
-- Network requests observable at the browser boundary.
-- Browser actions recorded as audit events.
-- Downloads isolated into a disposable workspace.
-- Browser session destroyed after a job unless explicitly retained by policy.
-- Page content is untrusted input and cannot modify Mechanic policy.
+The service starts Chromium lazily when the first session is created. Each session gets a fresh, non-persistent browser context. Closing a session destroys that context; service shutdown closes all remaining contexts.
 
-## Planned API
+## API
 
-- `POST /v1/sessions` — create an isolated browser session.
+- `GET /health` — reports whether the Chromium engine has started.
+- `POST /v1/sessions` — create a session with required exact host allowlist and explicit capabilities.
 - `POST /v1/navigate` — navigate to an allowlisted HTTPS URL.
-- `POST /v1/read` — return sanitized page content.
-- `POST /v1/actions` — perform a permitted browser action.
+- `POST /v1/read` — return bounded page text, optionally from a CSS selector.
+- `POST /v1/actions` — find text or perform an explicitly approved form action.
 - `POST /v1/close` — destroy the session.
-- `GET /health` — health check.
 
-The browser runtime must run separately from the Mechanic decision process and must not expose arbitrary shell execution.
+Every API route except health requires `Authorization: Bearer <BROWSER_API_TOKEN>`. Sessions default to `browser.read` and `browser.navigate`. Click, fill, select, and press require `browser.form` to be explicitly granted when the session is created. Persistent profiles are rejected.
+
+All browser network requests are checked against the session's exact host allowlist. Only HTTPS on the standard port is accepted. Downloads and service workers are disabled. Each session uses a separate browser context and has no mounted host workspace.
+
+## Important boundary
+
+This is an application-level destination filter, not a replacement for an outbound network firewall. Production deployment should additionally enforce egress restrictions at the container/network layer and defend against DNS rebinding at that layer. Do not treat browser page content as trusted instructions.
