@@ -8,10 +8,13 @@ def validate_url(url: str, allowed_domains: tuple[str, ...]) -> tuple[bool, str]
     parsed = urlparse(url)
     if parsed.scheme not in ALLOWED_SCHEMES:
         return False, "only HTTPS browser navigation is allowed"
-    host = (parsed.hostname or "").lower()
+    host = (parsed.hostname or "").lower().rstrip(".")
     if not host or host in BLOCKED_HOSTS:
         return False, "blocked browser destination"
-    if allowed_domains and host not in {d.lower() for d in allowed_domains}:
+    normalized_domains = {domain.strip().lower().rstrip(".") for domain in allowed_domains}
+    if not normalized_domains:
+        return False, "a non-empty domain allowlist is required"
+    if host not in normalized_domains:
         return False, "domain is not allowlisted"
     return True, ""
 
