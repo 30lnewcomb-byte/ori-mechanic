@@ -11,7 +11,7 @@ from typing import Any
 
 
 class JobLeaseError(RuntimeError):
-    """Raised when a worker attempts to finish a job without an active lease."""
+    """Raised when a worker attempts to use a job without an active lease."""
 
 
 @dataclass(frozen=True)
@@ -38,7 +38,7 @@ def _stamp(value: datetime) -> str:
 
 
 class SQLiteJobStore:
-    """SQLite queue with atomic claims, expiring leases, and bounded retries.
+    """SQLite queue with atomic claims, renewable leases, and bounded retries.
 
     Hosted deployments must mount a persistent volume at the database path.
     Multi-instance deployments should use a shared transactional DB adapter.
@@ -151,6 +151,34 @@ class SQLiteJobStore:
             claimed = db.execute("SELECT * FROM mechanic_jobs WHERE id=?", (job_id,)).fetchone()
             db.commit()
         return self._decode(claimed)
+
+    def renew_lease(self, job_id: str, worker_id: str, *, lease_seconds: int = 60) -> Job:
+        """Extend an active worker lease; expired or foreign leases cannot be revived."""
+        if not worker_id.strip():
+            raise ValueError("worker_id must not be empty")
+        if lease_seconds < 1:
+            raise ValueError("lease_seconds must be at least 1")
+        now = _now()
+        now_text = _stamp(now)
+        lease_text = _stamp(now + timedelta(seconds=lease_seconds))
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            job = self._decode(db.execute(
+                "SELECT * FROM mechanic_jobs WHERE id=?", (job_id,)
+            ).fetchone())
+            self._assert_lease(job, worker_id)
+            db.execute(
+                """UPDATE mechanic_jobs SET lease_until=?, updated_at=?
+                WHERE id=? AND status='running' AND lease_owner=?""",
+                (lease_text, now_text, job_id, worker_id),
+            )
+            renewed = db.execute(
+                "SELECT * FROM mechanic_jobs WHERE id=?", (job_id,)
+            ).fetchone()
+            db.commit()
+        result = self._decode(renewed)
+        assert result is not None
+        return result
 
     def complete(self, job_id: str, worker_id: str, result: dict[str, Any]) -> Job:
         if not isinstance(result, dict):
