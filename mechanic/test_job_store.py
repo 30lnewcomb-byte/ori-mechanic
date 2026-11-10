@@ -66,6 +66,39 @@ def test_expired_job_at_retry_limit_is_failed(tmp_path):
     assert store.get(job.id).status == "failed"
 
 
+def test_lease_can_be_renewed_by_current_owner(tmp_path):
+    store = SQLiteJobStore(tmp_path / "jobs.sqlite3")
+    job = store.enqueue({"task": "long-running"})
+    claimed = store.claim_next("worker-a", lease_seconds=5)
+    original_expiry = claimed.lease_until
+
+    renewed = store.renew_lease(job.id, "worker-a", lease_seconds=120)
+
+    assert renewed.status == "running"
+    assert renewed.lease_owner == "worker-a"
+    assert renewed.lease_until > original_expiry
+    assert store.complete(job.id, "worker-a", {"ok": True}).status == "completed"
+
+
+def test_lease_cannot_be_renewed_by_another_worker(tmp_path):
+    store = SQLiteJobStore(tmp_path / "jobs.sqlite3")
+    job = store.enqueue({"task": "protected"})
+    store.claim_next("worker-a")
+    with pytest.raises(JobLeaseError):
+        store.renew_lease(job.id, "worker-b")
+
+
+def test_expired_lease_cannot_be_renewed(tmp_path):
+    store = SQLiteJobStore(tmp_path / "jobs.sqlite3")
+    job = store.enqueue({"task": "expired"})
+    store.claim_next("worker-a")
+    with store._connect() as db:
+        expired = _stamp(datetime.now(timezone.utc) - timedelta(seconds=5))
+        db.execute("UPDATE mechanic_jobs SET lease_until=? WHERE id=?", (expired, job.id))
+    with pytest.raises(JobLeaseError):
+        store.renew_lease(job.id, "worker-a")
+
+
 def test_invalid_inputs_are_rejected(tmp_path):
     store = SQLiteJobStore(tmp_path / "jobs.sqlite3")
     with pytest.raises(ValueError):
@@ -74,3 +107,7 @@ def test_invalid_inputs_are_rejected(tmp_path):
         store.claim_next(" ")
     with pytest.raises(ValueError):
         store.claim_next("worker-a", lease_seconds=0)
+    job = store.enqueue({"task": "lease-validation"})
+    store.claim_next("worker-a")
+    with pytest.raises(ValueError):
+        store.renew_lease(job.id, "worker-a", lease_seconds=0)
